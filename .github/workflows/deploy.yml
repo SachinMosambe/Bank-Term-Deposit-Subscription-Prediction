@@ -1,4 +1,4 @@
-name: Deploy Streamlit App to EC2
+name: Deploy to EC2
 
 on:
   push:
@@ -8,26 +8,26 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+
     steps:
-      - name: Checkout Repo
-        uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Copy Files to EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "."
-          target: "/home/ubuntu/Bank-Term-Deposit-Subscription-Prediction"
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_KEY }}" > ~/.ssh/ec2_key.pem
+          chmod 600 ~/.ssh/ec2_key.pem
 
-      - name: Restart Streamlit App
-        uses: appleboy/ssh-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ubuntu
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            pkill -f streamlit || true
-            cd /home/ubuntu/Bank-Term-Deposit-Subscription-Prediction
-            nohup streamlit run app.py --server.port 8501 --server.address 0.0.0.0 &
+      - name: Deploy to EC2
+        run: |
+          ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
+            cd ~/Bank-Term-Deposit-Subscription-Prediction
+            git pull origin main
+            source venv/bin/activate
+            pip install -r requirements.txt
+            aws s3 cp s3://${{ secrets.S3_BUCKET }}/models/best_model.pkl models/best_model.pkl --no-sign-request
+            nohup streamlit run app.py --server.port 8501 --server.address 0.0.0.0 > app.log 2>&1 &
+          EOF
+
+

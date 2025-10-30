@@ -1,14 +1,15 @@
 # Ignore data and large model files
 test.csv
 train.csv
+venv/
+__pycache__/
+*.pyc
 *.pkl
 *.pth
-*.joblib
+*.log
+*.pem
 models/
-__pycache__/
-.DS_Store
+.github_deploy_key*
 .env
-.vscode/
-.ipynb_checkpoints/
-/venv/
+
 
