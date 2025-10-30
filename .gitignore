@@ -1,0 +1,14 @@
+# Ignore data and large model files
+test.csv
+train.csv
+*.pkl
+*.pth
+*.joblib
+models/
+__pycache__/
+.DS_Store
+.env
+.vscode/
+.ipynb_checkpoints/
+/venv/
+
