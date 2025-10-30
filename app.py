@@ -2,29 +2,33 @@ import streamlit as st
 import pandas as pd
 import joblib
 import boto3
-import os
+import io
 
 # ==========================
 # 🪣 S3 Configuration
 # ==========================
 S3_BUCKET = "bank-term-model-bucket"       # 🔹 Replace with your bucket name
 MODEL_KEY = "models/best_model.pkl"        # 🔹 Path inside your S3 bucket
-LOCAL_MODEL_PATH = "best_model.pkl"        # Local cache path
 
 # ==========================
-# ⚙️ Load Model from S3
+# ⚙️ Load Model Directly from S3
 # ==========================
 @st.cache_resource
-def load_model():
-    """Download model from S3 if not already cached locally"""
-    if not os.path.exists(LOCAL_MODEL_PATH):
-        st.info("📦 Downloading model from S3...")
-        s3 = boto3.client('s3')
-        s3.download_file(S3_BUCKET, MODEL_KEY, LOCAL_MODEL_PATH)
-        st.success("✅ Model downloaded successfully!")
-    return joblib.load(LOCAL_MODEL_PATH)
+def load_model_from_s3():
+    """Load model directly into memory from S3"""
+    st.info("📦 Loading model directly from S3...")
+    s3 = boto3.client('s3')
+    try:
+        obj = s3.get_object(Bucket=S3_BUCKET, Key=MODEL_KEY)
+        bytestream = io.BytesIO(obj['Body'].read())
+        model = joblib.load(bytestream)
+        st.success("✅ Model loaded successfully from S3!")
+        return model
+    except Exception as e:
+        st.error(f"❌ Failed to load model from S3: {e}")
+        raise e
 
-model = load_model()
+model = load_model_from_s3()
 
 # ==========================
 # 🧱 App UI
@@ -85,4 +89,3 @@ if st.button("Predict"):
     
     except Exception as e:
         st.error(f"Error during prediction: {e}")
-
