@@ -7,8 +7,8 @@ import io
 # ==========================
 # 🪣 S3 Configuration
 # ==========================
-S3_BUCKET = "bank-term-model-bucket"
-MODEL_KEY = "models/model_for_inference.pth"      # 🔹 Path inside your S3 bucket
+S3_BUCKET = "bank-term-deposit-1"
+MODEL_KEY = "models/best_model.pkl"      
 
 # ==========================
 # ⚙️ Load Model Directly from S3
