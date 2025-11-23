@@ -4,7 +4,7 @@ import tempfile
 import joblib
 import boto3
 import io
-
+import feature_engineer
 # ==========================
 # 🪣 S3 Configuration
 # ==========================
