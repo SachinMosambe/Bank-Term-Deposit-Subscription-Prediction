@@ -15,20 +15,26 @@ MODEL_KEY = "models/best_model.pkl"
 # ==========================
 @st.cache_resource
 def load_model_from_s3():
-    """Load model directly into memory from S3"""
-    st.info("📦 Loading model directly from S3...")
-    s3 = boto3.client('s3')
+    st.info("📦 Loading model from S3...")
+    s3 = boto3.client("s3")
+
     try:
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=MODEL_KEY)
-        bytestream = io.BytesIO(obj['Body'].read())
-        model = joblib.load(bytestream)
-        st.success("✅ Model loaded successfully from S3!")
+        # Stream file → temp file (prevents MemoryError)
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            s3.download_fileobj(S3_BUCKET, MODEL_KEY, tmp)
+            temp_path = tmp.name
+
+        model = joblib.load(temp_path)
+        st.success("✅ Model loaded successfully!")
         return model
+
     except Exception as e:
-        st.error(f"❌ Failed to load model from S3: {e}")
+        st.error(f"❌ Failed to load model: {e}")
         raise e
 
+
 model = load_model_from_s3()
+
 
 # ==========================
 # 🧱 App UI
