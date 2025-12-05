@@ -1,119 +1,52 @@
 import streamlit as st
 import pandas as pd
 import joblib
-import boto3
-import botocore
-import threading
-import io
 import os
 
-# ==========================
-# 🪣 S3 Configuration
-# ==========================
-S3_BUCKET = "bank-term-deposit-1"
-MODEL_KEY = "models/best_model.pkl"  # S3 path
-LOCAL_MODEL_PATH = "cached_model.pkl"  # Local fast cache
-
-# ==========================
-# ⚡ Global State
-# ==========================
-_model = None
-_loading = False
-_lock = threading.Lock()
+from feature_engineer import FeatureEngineer   # keep only if you need it
 
 
-# ==========================
-# 🔥 Background Model Loader
-# ==========================
-def _download_and_cache_model():
-    """Download large model from S3 only once and cache locally."""
-    global _model, _loading
-
-    try:
-        # If already cached locally → use it (FAST)
-        if os.path.exists(LOCAL_MODEL_PATH):
-            _model = joblib.load(LOCAL_MODEL_PATH)
-            _loading = False
-            return
-
-        session = boto3.Session()
-        s3 = session.client(
-            "s3",
-            config=botocore.client.Config(
-                retries={"max_attempts": 10, "mode": "adaptive"},
-                max_pool_connections=40,
-                connect_timeout=3,
-                read_timeout=3,
-            ),
-        )
-
-        buffer = io.BytesIO()
-        s3.download_fileobj(S3_BUCKET, MODEL_KEY, buffer)
-
-        buffer.seek(0)
-        model = joblib.load(buffer)
-
-        # Save for instant future loads
-        joblib.dump(model, LOCAL_MODEL_PATH)
-
-        with _lock:
-            _model = model
-
-    except Exception as e:
-        st.error(f"❌ Model load failed: {e}")
-
-    finally:
-        _loading = False
+# ============================================
+# ⚡ LOCAL MODEL CONFIG (EC2)
+# ============================================
+MODEL_PATH = "best_model.pkl"   # You uploaded this manually to EC2
 
 
-# ==========================
-# ⚡ Async Model Controller
-# ==========================
-@st.cache_resource(show_spinner=False)
+# ============================================
+# ⚡ LOAD MODEL ONLY ONCE (No S3, No Threads)
+# ============================================
+@st.cache_resource(show_spinner=True)
 def load_model():
-    """Returns model or triggers async load."""
-    global _model, _loading
+    """Load the large model once into memory on EC2."""
+    
+    if not os.path.exists(MODEL_PATH):
+        st.error(f"❌ Model file not found at: {MODEL_PATH}")
+        st.stop()
 
-    # Already loaded → return
-    if _model is not None:
-        return _model
+    # mmap_mode to reduce RAM spikes for very large models
+    try:
+        model = joblib.load(MODEL_PATH, mmap_mode='r')
+    except TypeError:
+        model = joblib.load(MODEL_PATH)
 
-    # Cached locally → load instantly
-    if os.path.exists(LOCAL_MODEL_PATH):
-        _model = joblib.load(LOCAL_MODEL_PATH)
-        return _model
-
-    # Start async download
-    if not _loading:
-        _loading = True
-        threading.Thread(target=_download_and_cache_model, daemon=True).start()
-
-    return None
+    return model
 
 
-# Trigger model load
+# Load the model
 model = load_model()
 
-# ==========================
-# UI Loader Status
-# ==========================
-if model is None:
-    st.info("⏳ Loading 2.5GB model from S3... (only first time)")
-else:
-    st.success("✅ Model loaded successfully!")
 
-
-# ==========================
-# 🧱 Streamlit UI
-# ==========================
+# ============================================
+# 🧱 STREAMLIT UI
+# ============================================
 st.set_page_config(page_title="Term Deposit Prediction", layout="centered")
 st.title("💰 Bank Term Deposit Subscription Prediction")
 st.markdown("Predict whether a client will subscribe to a term deposit.")
 
 
-# ==========================
-# 🧍 User Input Form
-# ==========================
+# ============================================
+# 🧍 USER INPUT FORM
+# ============================================
 def get_user_input():
     data = {
         'age': st.number_input('Age', 18, 100, 30),
@@ -146,25 +79,22 @@ def get_user_input():
 input_df = get_user_input()
 
 
-# ==========================
-# 🔮 Prediction
-# ==========================
+# ============================================
+# 🔮 PREDICTION
+# ============================================
 if st.button("Predict"):
-    if model is None:
-        st.error("⏳ Model still loading... Try again in a few seconds.")
-    else:
-        try:
-            prediction = model.predict(input_df)[0]
-            proba = model.predict_proba(input_df)[0][1]
+    try:
+        prediction = model.predict(input_df)[0]
+        proba = model.predict_proba(input_df)[0][1]
 
-            st.subheader("Prediction Result")
-            if prediction == 1:
-                st.success("The client is **likely to subscribe** to a term deposit.")
-            else:
-                st.warning("The client is **not likely to subscribe**.")
+        st.subheader("Prediction Result")
+        if prediction == 1:
+            st.success("The client is **likely to subscribe** to a term deposit.")
+        else:
+            st.warning("The client is **not likely to subscribe**.")
 
-            st.subheader("Prediction Probability")
-            st.write(f"**{proba:.2%}** chance of subscription.")
+        st.subheader("Prediction Probability")
+        st.write(f"**{proba:.2%}** chance of subscription.")
 
-        except Exception as e:
-            st.error(f"❌ Prediction failed: {e}")
+    except Exception as e:
+        st.error(f"❌ Prediction failed: {e}")
