@@ -23,11 +23,22 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no -i ~/.ssh/ec2_key.pem ${{ secrets.EC2_USER }}@${{ secrets.EC2_HOST }} << 'EOF'
             cd ~/Bank-Term-Deposit-Subscription-Prediction
-            git pull origin main
+
+            echo "Pulling new code from GitHub..."
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "Activating venv..."
             source venv/bin/activate
+
+            echo "Installing requirements..."
             pip install -r requirements.txt
-            aws s3 cp s3://${{ secrets.S3_BUCKET }}/models/best_model.pkl models/best_model.pkl --no-sign-request
+
+            echo "Skipping S3 model download (model already on EC2)..."
+            
+            echo "Stopping old Streamlit..."
+            pkill -f streamlit || true
+
+            echo "Starting new Streamlit..."
             nohup streamlit run app.py --server.port 8501 --server.address 0.0.0.0 > app.log 2>&1 &
           EOF
-
-
