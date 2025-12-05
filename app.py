@@ -3,6 +3,7 @@ import pandas as pd
 import joblib
 import boto3
 import io
+import botocore
 
 # ==========================
 # 🪣 S3 Configuration
@@ -11,24 +12,42 @@ S3_BUCKET = "bank-term-model-bucket"       # 🔹 Replace with your bucket name
 MODEL_KEY = "models/best_model.pkl"        # 🔹 Path inside your S3 bucket
 
 # ==========================
-# ⚙️ Load Model Directly from S3
+# ⚙️ Load Model Directly from S3 (Optimized)
 # ==========================
-@st.cache_resource
+@st.cache_resource(show_spinner=False)
 def load_model_from_s3():
-    """Load model directly into memory from S3"""
-    st.info("📦 Loading model directly from S3...")
-    s3 = boto3.client('s3')
-    try:
-        obj = s3.get_object(Bucket=S3_BUCKET, Key=MODEL_KEY)
-        bytestream = io.BytesIO(obj['Body'].read())
-        model = joblib.load(bytestream)
-        st.success("✅ Model loaded successfully from S3!")
-        return model
-    except Exception as e:
-        st.error(f"❌ Failed to load model from S3: {e}")
-        raise e
+    """Ultra-fast S3 → RAM model loader for EC2/Streamlit."""
+    with st.spinner("📦 Loading model directly from S3 (optimized)..."):
+        try:
+            # Use EC2 IAM Role automatically (fastest & safest)
+            session = boto3.Session()
 
+            # Optimize retries + connections
+            s3 = session.client(
+                "s3",
+                config=botocore.client.Config(
+                    max_pool_connections=30,
+                    retries={"max_attempts": 8, "mode": "standard"}
+                ),
+            )
+
+            # Stream the model directly into memory
+            buffer = io.BytesIO()
+            s3.download_fileobj(S3_BUCKET, MODEL_KEY, buffer)
+
+            buffer.seek(0)
+            model = joblib.load(buffer)
+
+            st.success("✅ Model loaded successfully from S3!")
+            return model
+
+        except Exception as e:
+            st.error(f"❌ Failed to load model from S3: {e}")
+            raise e
+
+# Load model (cached forever)
 model = load_model_from_s3()
+
 
 # ==========================
 # 🧱 App UI
