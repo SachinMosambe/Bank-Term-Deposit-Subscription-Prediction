@@ -9,5 +9,6 @@ joblib
 streamlit
 mlflow
 imbalanced-learn
-boto3
 shap
+fastapi
+uvicorn

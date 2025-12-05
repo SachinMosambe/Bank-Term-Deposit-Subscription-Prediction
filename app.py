@@ -1,47 +1,14 @@
 import streamlit as st
 import pandas as pd
-import joblib
-import os
+import requests
+from feature_engineer import FeatureEngineer
 
-from feature_engineer import FeatureEngineer   # keep only if you need it
+# ⭐ Update this with your EC2 public IP
+API_URL = "http://3.111.71.221:8000/predict"
 
-
-# ============================================
-# ⚡ LOCAL MODEL CONFIG (EC2)
-# ============================================
-MODEL_PATH = "best_model.pkl"   # You uploaded this manually to EC2
-
-
-# ============================================
-# ⚡ LOAD MODEL ONLY ONCE (No S3, No Threads)
-# ============================================
-@st.cache_resource(show_spinner=True)
-def load_model():
-    """Load the large model once into memory on EC2."""
-    
-    if not os.path.exists(MODEL_PATH):
-        st.error(f"❌ Model file not found at: {MODEL_PATH}")
-        st.stop()
-
-    # mmap_mode to reduce RAM spikes for very large models
-    try:
-        model = joblib.load(MODEL_PATH, mmap_mode='r')
-    except TypeError:
-        model = joblib.load(MODEL_PATH)
-
-    return model
-
-
-# Load the model
-model = load_model()
-
-
-# ============================================
-# 🧱 STREAMLIT UI
-# ============================================
 st.set_page_config(page_title="Term Deposit Prediction", layout="centered")
 st.title("💰 Bank Term Deposit Subscription Prediction")
-st.markdown("Predict whether a client will subscribe to a term deposit.")
+st.markdown("Predict whether a client will subscribe to a term deposit using a deployed ML model API.")
 
 
 # ============================================
@@ -73,19 +40,21 @@ def get_user_input():
         'previous': st.number_input('Previous Contacts', 0, 50, 0),
         'poutcome': st.selectbox('Previous Outcome', ['unknown', 'other', 'failure', 'success'])
     }
-    return pd.DataFrame(data, index=[0])
-
+    return pd.DataFrame([data])
 
 input_df = get_user_input()
 
 
 # ============================================
-# 🔮 PREDICTION
+# 🔮 PREDICTION THROUGH FASTAPI
 # ============================================
 if st.button("Predict"):
     try:
-        prediction = model.predict(input_df)[0]
-        proba = model.predict_proba(input_df)[0][1]
+        payload = {"data": input_df.iloc[0].to_dict()}
+
+        response = requests.post(API_URL, json=payload).json()
+        prediction = response["prediction"]
+        proba = response["probability"]
 
         st.subheader("Prediction Result")
         if prediction == 1:
@@ -93,8 +62,9 @@ if st.button("Predict"):
         else:
             st.warning("The client is **not likely to subscribe**.")
 
-        st.subheader("Prediction Probability")
-        st.write(f"**{proba:.2%}** chance of subscription.")
+        if proba is not None:
+            st.subheader("Prediction Probability")
+            st.write(f"**{proba:.2%}** chance of subscription.")
 
     except Exception as e:
-        st.error(f"❌ Prediction failed: {e}")
+        st.error(f"❌ API request failed: {e}")
