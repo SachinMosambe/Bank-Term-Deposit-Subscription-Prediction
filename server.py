@@ -3,6 +3,8 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 import pandas as pd
 import joblib
+from feature_engineer import FeatureEngineer
+
 
 MODEL_PATH = "best_model.pkl"
 
