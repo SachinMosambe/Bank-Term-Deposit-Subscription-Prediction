@@ -2,82 +2,117 @@ import streamlit as st
 import pandas as pd
 import joblib
 import boto3
-import io
 import botocore
 import threading
+import io
+import os
 
 # ==========================
 # 🪣 S3 Configuration
 # ==========================
-S3_BUCKET = "bank-term-deposit-1"      
-MODEL_KEY = "models/best_model.pkl"        # Path inside S3
+S3_BUCKET = "bank-term-deposit-1"
+MODEL_KEY = "models/best_model.pkl"  # S3 path
+LOCAL_MODEL_PATH = "cached_model.pkl"  # Local fast cache
 
-
+# ==========================
+# ⚡ Global State
+# ==========================
 _model = None
-_model_lock = threading.Lock()
+_loading = False
+_lock = threading.Lock()
 
 
-def _download_model():
-    """Background thread: download model without blocking Streamlit."""
-    global _model
+# ==========================
+# 🔥 Background Model Loader
+# ==========================
+def _download_and_cache_model():
+    """Download large model from S3 only once and cache locally."""
+    global _model, _loading
+
     try:
-        session = boto3.Session()
+        # If already cached locally → use it (FAST)
+        if os.path.exists(LOCAL_MODEL_PATH):
+            _model = joblib.load(LOCAL_MODEL_PATH)
+            _loading = False
+            return
 
-        # Highly optimized S3 client
+        session = boto3.Session()
         s3 = session.client(
             "s3",
             config=botocore.client.Config(
-                max_pool_connections=50,
                 retries={"max_attempts": 10, "mode": "adaptive"},
-                connect_timeout=2,
-                read_timeout=2,
+                max_pool_connections=40,
+                connect_timeout=3,
+                read_timeout=3,
             ),
         )
 
         buffer = io.BytesIO()
         s3.download_fileobj(S3_BUCKET, MODEL_KEY, buffer)
+
         buffer.seek(0)
+        model = joblib.load(buffer)
 
-        loaded = joblib.load(buffer)
+        # Save for instant future loads
+        joblib.dump(model, LOCAL_MODEL_PATH)
 
-        # Save model safely
-        with _model_lock:
-            _model = loaded
+        with _lock:
+            _model = model
 
     except Exception as e:
-        st.error(f"❌ Background model load failed: {e}")
+        st.error(f"❌ Model load failed: {e}")
+
+    finally:
+        _loading = False
 
 
+# ==========================
+# ⚡ Async Model Controller
+# ==========================
 @st.cache_resource(show_spinner=False)
-def load_model_async():
-    """Returns model if loaded; otherwise starts async loading."""
-    global _model
+def load_model():
+    """Returns model or triggers async load."""
+    global _model, _loading
 
-    if _model is None:
-        threading.Thread(target=_download_model, daemon=True).start()
-        return None
+    # Already loaded → return
+    if _model is not None:
+        return _model
 
-    return _model
+    # Cached locally → load instantly
+    if os.path.exists(LOCAL_MODEL_PATH):
+        _model = joblib.load(LOCAL_MODEL_PATH)
+        return _model
+
+    # Start async download
+    if not _loading:
+        _loading = True
+        threading.Thread(target=_download_and_cache_model, daemon=True).start()
+
+    return None
 
 
-# Load model (async)
-model = load_model_async()
+# Trigger model load
+model = load_model()
 
-# Loader UI
+# ==========================
+# UI Loader Status
+# ==========================
 if model is None:
-    st.info("⏳ Loading model from S3 in background... please wait 2–3 seconds.")
+    st.info("⏳ Loading 2.5GB model from S3... (only first time)")
 else:
     st.success("✅ Model loaded successfully!")
 
+
 # ==========================
-# 🧱 App UI
+# 🧱 Streamlit UI
 # ==========================
 st.set_page_config(page_title="Term Deposit Prediction", layout="centered")
 st.title("💰 Bank Term Deposit Subscription Prediction")
 st.markdown("Predict whether a client will subscribe to a term deposit.")
 
+
 # ==========================
-# 🧍 User Input
+# 🧍 User Input Form
 # ==========================
 def get_user_input():
     data = {
@@ -110,12 +145,13 @@ def get_user_input():
 
 input_df = get_user_input()
 
+
 # ==========================
 # 🔮 Prediction
 # ==========================
 if st.button("Predict"):
     if model is None:
-        st.error("⏳ Model still loading... Please wait 2–3 seconds and try again.")
+        st.error("⏳ Model still loading... Try again in a few seconds.")
     else:
         try:
             prediction = model.predict(input_df)[0]
@@ -131,4 +167,4 @@ if st.button("Predict"):
             st.write(f"**{proba:.2%}** chance of subscription.")
 
         except Exception as e:
-            st.error(f"Error during prediction: {e}")
+            st.error(f"❌ Prediction failed: {e}")
